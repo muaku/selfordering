@@ -2,9 +2,9 @@
 
 module.exports = {
 	hostname: "127.0.0.1",
-	port: 8000,
-	baseUrl: "http://localhost:8000",
+	port: 3000,
+	baseUrl: "http://localhost:3000",
 	mongodb: {
-		uri: "mongodb://localhost/selforder"
+		uri: "mongodb://127.0.0.1:27017/selforder"
 	}
 }

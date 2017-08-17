@@ -1,46 +1,103 @@
 'use strict'
+import http from "http"
+import config from "./config/index"
+/*
+	GraphQL
+*/
+import express from 'express';
+import {
+	graphqlExpress,
+	graphiqlExpress,
+} from 'graphql-server-express';
+import bodyParser from 'body-parser';
+import cors from 'cors';
+import { schema } from './app/graphql';
+import { execute, subscribe } from 'graphql';
+import { formatError } from 'apollo-errors';
+
 
 const ENV = process.env.NODE_ENV || "development"
-const DEFAULT_PORT = 8000
+const DEFAULT_PORT = 3000
 const DEFAULT_HOSTNAME = '127.0.0.1'
 
-const http = require("http")
-const express = require("express")
-const app = express()
-const config = require("./config/index")
-const router = require("./app/routers/router")
 const firebase = require("./firebase")
-
-/** 
-	SET express variable
-**/
-app.set("env", ENV)
-
-app.use(express.static('public/firetest'))
-
-require("./mongoose").init(app)
-require("./express").init(app)
+const app = express()
+const cluster = require("cluster")
 
 
-// CHECK for valid token
-app.use(firebase.checkToken)
-// TEST ROUTER
-app.use("/", router)
+app.use('*', cors());; 
 
 
+/*
+	NODEJS Cluster
+*/
+if(cluster.isMaster) {
+	const numWorkers = require("os").cpus().length	// GET number of cpu' cores
+	console.log(`Master ${process.pid} is running`)
 
-/**
-	START server
-**/
-let server = http.createServer(app)
-server.listen(
-	config.port || DEFAULT_PORT, 
-	config.hostname || DEFAULT_HOSTNAME,
-	() => {
-		console.log(`SERVER is listening on port: ${config.port}`);
-		console.log(`With environment: ${ENV.toLowerCase()}`);
+	// Fork workers
+	console.log(`Master cluster setting up ${numWorkers} workers`)
+	for(var i = 0; i < numWorkers; i++) {
+		cluster.fork()
 	}
-)
+
+	// Listen for exit event (Worker died)
+	cluster.on("exit", (worker, code, signal) => {
+		console.log(`Worker ${worker.process.pid} died with CODE ${code} and SIGNAL ${signal}`);
+		console.log("Create new worker")
+		cluster.fork()
+	})
+}
+
+else {
 
 
-module.exports = server
+	/** 
+		SET express variable
+	**/
+	app.set("env", ENV)
+
+	require("./mongoose").init(app)
+	require("./express").init(app)
+
+
+
+	/** 
+		Firebase
+	**/
+	// CHECK for valid token
+	app.use(firebase.checkToken)
+
+
+
+	/** 
+		GraphQL
+	**/
+	app.use('/graphql', bodyParser.json(), graphqlExpress((req) => ({
+		formatError,
+		schema,
+		context: req.user
+	})));
+
+	app.use('/graphiql', graphiqlExpress({
+		endpointURL: '/graphql',
+		subscriptionsEndpoint: `ws://localhost:4000/subscriptions`
+	}));
+
+
+	/**
+		START server
+	**/
+	let server = http.createServer(app)
+	server.listen(
+		config.port || DEFAULT_PORT,
+		() => {
+			console.log(`SERVER is listening on port: ${config.port}`);
+			console.log(`With environment: ${ENV.toLowerCase()}`);
+		}
+	)
+
+
+	module.exports = app
+
+}
